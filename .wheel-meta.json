@@ -1,0 +1,17 @@
+{
+  "wheel_id": 104,
+  "slug": "kitchenrenovationgeelong-150",
+  "project": "custom-cabinetry-geelong-k-150",
+  "parent_t1_ref": "kitchenrenovationgeelong-002",
+  "node_role": "buffer",
+  "money_target": "kitchenrenovationgeelong.com.au",
+  "primary_kw": "custom cabinetry geelong",
+  "intended_url": "https://custom-cabinetry-geelong-k-150.pages.dev/",
+  "links": [
+    {
+      "target_url": "https://storage.googleapis.com/kitchenrenovationgeelong-002/custom-cabinetry-geelong.html",
+      "anchor": "custom cabinetry geelong",
+      "rel": "follow"
+    }
+  ]
+}
