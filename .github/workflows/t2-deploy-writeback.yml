@@ -190,8 +190,15 @@ jobs:
 
           # Path host convention: the built HTML file is keyword-named (e.g.
           # bathroom-renovation-cost-camberwell.html), NOT necessarily index.html.
-          for f in glob.glob("*.html"):
+          html_files = sorted(glob.glob("*.html"))
+          if not html_files:
+              raise RuntimeError("no html files found for S3 deploy")
+          for f in html_files:
               with_retry(s3.upload_file, f, project, f, ExtraArgs={"ContentType": "text/html"})
+          if "index.html" not in html_files:
+              # T2 path-host URLs point at /index.html. Keep the keyword HTML too,
+              # but publish an index alias so the evidence gate and upstream links are live.
+              with_retry(s3.upload_file, html_files[0], project, "index.html", ExtraArgs={"ContentType": "text/html"})
           for pattern in ("*.jpg", "*.png", "*.txt", "*.xml"):
               for f in glob.glob(pattern):
                   if f.startswith("."):
@@ -228,10 +235,7 @@ jobs:
         # that only exists locally because the local pipeline builds outside
         # any git repo first. Own-host, root, IndexNow applies. Proven live
         # 2026-07-02 via the local script; ported + simplified here.
-        # Render may truncate the service slug/URL when the project name is
-        # long, so resolve serviceDetails.url and use that for the evidence gate.
         if: steps.meta.outputs.present == 'true' && steps.meta.outputs.cloud_host == 'render'
-        id: deploy_render
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
@@ -264,11 +268,6 @@ jobs:
               "https://api.render.com/v1/services/$SVCID/deploys" -d '{}' >/dev/null 2>&1 || true
           fi
           echo "render_service_id=$SVCID" >> "$GITHUB_OUTPUT" 2>/dev/null || true
-          RESOLVED="$(curl -s -m 25 -H "Authorization: Bearer $RENDER_API_KEY" \
-            "https://api.render.com/v1/services/$SVCID" \
-            | jq -r '.service.serviceDetails.url // .service.url // empty')"
-          [ -n "$RESOLVED" ] || { echo "::error::Render service URL unavailable for '$PROJECT'"; exit 1; }
-          echo "resolved_url=${RESOLVED%/}/" >> "$GITHUB_OUTPUT"
 
       - name: Deploy (digitalocean)
         # Same simplification as Render: DO App Platform builds straight from
@@ -398,21 +397,20 @@ jobs:
         if: steps.meta.outputs.present == 'true'
         id: verify
         run: |
-          # Some hosts resolve the final URL only after the deploy step. Use
-          # that evidence URL instead of the planned intended_url.
+          # digitalocean's URL is only known after the deploy step resolved it
+          # (random suffix, not derivable from project name) -- intended_url
+          # would be wrong for this host.
           if [ "${{ steps.meta.outputs.cloud_host }}" = "digitalocean" ]; then
             url="${{ steps.deploy_do.outputs.resolved_url }}"
-          elif [ "${{ steps.meta.outputs.cloud_host }}" = "render" ]; then
-            url="${{ steps.deploy_render.outputs.resolved_url }}"
           else
             url="${{ steps.meta.outputs.intended_url }}"
           fi
           code=0
           for i in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo 000)
-            if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then
+            if [ "$code" = "200" ]; then
               echo "live_url=$url" >> "$GITHUB_OUTPUT"
-              echo "http_code=$code" >> "$GITHUB_OUTPUT"
+              echo "http_code=200" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             sleep 15
